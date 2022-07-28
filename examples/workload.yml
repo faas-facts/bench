@@ -1,0 +1,28 @@
+output: examples/$date.csv
+workload:
+  name: example
+  target: http://localhost:8080
+  phases:
+    - name: warmup
+      threads: 8
+      hatchRate:
+        type: noop
+      timeout: 30s
+    - name: scaleup
+      threads: 8
+      timeout: 30s
+      hatchRate:
+        type: slope
+        start: 1
+        rate: 1.5
+    - name: settling
+      threads: 8
+      timeout: 120s
+      hatchRate:
+        type: fixed
+        trps: 150
+  invoker:
+    type: http
+    timeout: 1s
+    body: "hello"
+    keep_alive: false
