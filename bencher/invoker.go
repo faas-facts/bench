@@ -18,13 +18,13 @@
 package bencher
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
 
-
 type Invoker interface {
-	Setup(*Phase, *Bencher) error
+	Setup(context.Context, *Phase, *Bencher) error
 	Exec(rate HatchRate) error
 }
 
@@ -32,31 +32,29 @@ type FunctionAPIInvoker interface {
 	Invoker
 }
 
-var _invokerTypes = []string{"http","ow"}
+var _invokerTypes = []string{"http", "ow"}
 
-type InvokerConstructor func (config InvokerConfig) (Invoker,error)
+type InvokerConstructor func(config InvokerConfig) (Invoker, error)
 
 var _invoker = make(map[string]InvokerConstructor)
 
 //Extension Method to register more invoker used during config parsing
-func RegisterInvoker(name string, constructor InvokerConstructor) error{
-	for _,k := range _invokerTypes {
+func RegisterInvoker(name string, constructor InvokerConstructor) error {
+	for _, k := range _invokerTypes {
 		if name == k {
-			return fmt.Errorf("cannot use %s to register a HatchRate",name)
+			return fmt.Errorf("cannot use %s to register a HatchRate", name)
 		}
 	}
-	_invoker[name]=constructor
+	_invoker[name] = constructor
 	return nil
 }
 
 type InvokerConfig struct {
-	Type string `yaml:"type"`
 	Options map[string]interface{} `yaml:",inline"`
-
+	Type    string                 `yaml:"type"`
 }
 
-
-func NewInvokerFromConfig(config InvokerConfig) (Invoker,error) {
+func NewInvokerFromConfig(config InvokerConfig) (Invoker, error) {
 	_type := strings.TrimSpace(strings.ToLower(config.Type))
 	switch _type {
 	case "http":
@@ -65,7 +63,7 @@ func NewInvokerFromConfig(config InvokerConfig) (Invoker,error) {
 		return newOpenWhiskInvoker(config)
 	}
 
-	if val,ok := _invoker[_type]; ok {
+	if val, ok := _invoker[_type]; ok {
 		return val(config)
 	}
 

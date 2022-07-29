@@ -19,6 +19,7 @@ package bencher
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -34,7 +35,6 @@ import (
 	"os"
 	"time"
 )
-
 
 //TODO: needs testing
 type HTTPInvoker struct {
@@ -61,30 +61,30 @@ type HTTPInvoker struct {
 
 //TODO: needs testing
 //TODO: needs documentation
-func newHttpInvoker(config InvokerConfig) (Invoker,error) {
-	valid := checkFields(config.Options,"timeout")
+func newHttpInvoker(config InvokerConfig) (Invoker, error) {
+	valid := checkFields(config.Options, "timeout")
 	if !valid {
-		return nil,fmt.Errorf("missing key in config")
+		return nil, fmt.Errorf("missing key in config")
 	}
 
 	timeout, err := time.ParseDuration(config.Options["timeout"].(string))
-	if err != nil{
-		return nil,err
+	if err != nil {
+		return nil, err
 	}
 
 	var body []byte = nil
-	if val,ok := config.Options["body"];ok {
+	if val, ok := config.Options["body"]; ok {
 		body = []byte(val.(string))
 	}
 
 	return &HTTPInvoker{
 		RequestBody:        body,
-		DisableCompression: flagValue("compression",config.Options,false),
-		DisableKeepAlive:   flagValue("keep_alive",config.Options,true),
-		DisableRedirects:   flagValue("redirects",config.Options,false),
-		H2:                 flagValue("h2",config.Options,false),
+		DisableCompression: flagValue("compression", config.Options, false),
+		DisableKeepAlive:   flagValue("keep_alive", config.Options, true),
+		DisableRedirects:   flagValue("redirects", config.Options, false),
+		H2:                 flagValue("h2", config.Options, false),
 		Timeout:            int(math.Ceil(timeout.Seconds())),
-	},nil
+	}, nil
 }
 
 func min(a, b int) int {
@@ -94,13 +94,12 @@ func min(a, b int) int {
 	return b
 }
 
-
-func (h *HTTPInvoker) Setup(phase *Phase,bencher *Bencher) error  {
+func (h *HTTPInvoker) Setup(ctx context.Context, phase *Phase, bencher *Bencher) error {
 	var ServerName string
 	if h.Request != nil {
 		ServerName = h.Request.Host
 	} else {
-		ServerName,_ = os.Hostname()
+		ServerName, _ = os.Hostname()
 	}
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{
@@ -117,10 +116,9 @@ func (h *HTTPInvoker) Setup(phase *Phase,bencher *Bencher) error  {
 		tr.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
 	}
 	h.client = &http.Client{Transport: tr, Timeout: time.Duration(h.Timeout) * time.Second}
-
 	h.results = bencher.results
 
-	if h.Request == nil{
+	if h.Request == nil {
 		// set content-type
 		header := make(http.Header)
 
@@ -144,7 +142,7 @@ func (h *HTTPInvoker) Setup(phase *Phase,bencher *Bencher) error  {
 		h.Request = req
 	}
 
-	if phase.PayloadFunc == nil{
+	if phase.PayloadFunc == nil {
 		h.RequestBody = []byte{}
 	} else {
 		h.RequestBody = phase.PayloadFunc(h)
@@ -155,7 +153,7 @@ func (h *HTTPInvoker) Setup(phase *Phase,bencher *Bencher) error  {
 
 func (h *HTTPInvoker) Exec(rate HatchRate) error {
 	err := rate.Take()
-	if err != nil{
+	if err != nil {
 		return err
 	}
 
@@ -181,7 +179,7 @@ func (b *HTTPInvoker) makeRequest(c *http.Client) *fact.Trace {
 	var reqDuration time.Duration
 	var req = cloneRequest(b.Request, b.RequestBody)
 
-	req.Header.Add("X-Request-ID",id)
+	req.Header.Add("X-Request-ID", id)
 	req.Header.Add("X-Benchmark", "doom")
 
 	trace := &httptrace.ClientTrace{
@@ -199,12 +197,12 @@ func (b *HTTPInvoker) makeRequest(c *http.Client) *fact.Trace {
 
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
 	resp, err := c.Do(req)
-	log.Debugf("%s done transport delay:%s first byte:%s",id,reqDuration,RStart.Sub(resStart))
+	log.Debugf("%s done transport delay:%s first byte:%s", id, reqDuration, RStart.Sub(resStart))
 	var result fact.Trace
 	if err == nil {
 		size = resp.ContentLength
 		code = resp.StatusCode
-		log.Debugf("got %d with %d bytes",code,size)
+		log.Debugf("got %d with %d bytes", code, size)
 		result = readTraceFromHttpResponse(resp)
 	}
 	REnd := time.Now()

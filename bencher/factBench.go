@@ -27,59 +27,61 @@ import (
 	"time"
 )
 
-func BencherFromConfigFile(configFile io.ReadCloser) (*Bencher,error) {
+func BencherFromConfigFile(configFile io.ReadCloser) (*Bencher, error) {
 	var config BenchmarkConfig
 
 	data, err := ioutil.ReadAll(configFile)
 	defer configFile.Close()
 	if err != nil {
-		return nil,err
+		return nil, err
 	}
 
 	err = yaml.Unmarshal(data, &config)
 	if err != nil {
-		return nil,err
+		return nil, err
 	}
 
-	return BencherFromConfig(config)
+	return BencherReadFromConfig(config)
 }
 
-func BencherFromConfig(config BenchmarkConfig) (*Bencher,error) {
+func BencherReadFromConfig(config BenchmarkConfig) (*Bencher, error) {
 
 	if config.OutputFile == "" {
 		return nil, fmt.Errorf("config dose not contain an output file")
 	}
 
-	var outfile = config.OutputFile
-	if strings.Contains(config.OutputFile,"$date"){
-		outfile = strings.Replace(config.OutputFile,"$date",time.Now().Format("2006_01_02"),-1)
-	}
-
-
-
 	workload, err := config.Workload.Unmarshal()
 	if err != nil {
-		return nil,err
+		return nil, err
 	}
 
-	if strings.Contains(config.OutputFile,"$name"){
-		outfile = strings.Replace(config.OutputFile,"$name",workload.Name,-1)
+	return BencherFromConfig(config, workload)
+}
+
+func BencherFromConfig(config BenchmarkConfig, workload Workload) (*Bencher, error) {
+	var outfile = config.OutputFile
+	if strings.Contains(config.OutputFile, "$date") {
+		outfile = strings.Replace(config.OutputFile, "$date", time.Now().Format("2006_01_02"), -1)
+	}
+
+	if strings.Contains(outfile, "$name") {
+		outfile = strings.Replace(outfile, "$name", workload.Name, -1)
 	}
 
 	//check if file exsist or can be created
 	out, err := os.OpenFile(outfile, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0664)
 	if err != nil {
-		return nil,err
+		return nil, err
 	}
 
 	return &Bencher{
 		Work:       workload,
 		outputfile: out,
 		Strict:     false,
-	},nil
+	}, nil
 }
 
-func WithPreRun(bencher *Bencher,runFunc PreRunFunc) *Bencher {
+func WithPreRun(bencher *Bencher, runFunc PreRunFunc) *Bencher {
 	if bencher == nil {
 		return nil
 	}
@@ -87,7 +89,7 @@ func WithPreRun(bencher *Bencher,runFunc PreRunFunc) *Bencher {
 	return bencher
 }
 
-func WithPostRun(bencher *Bencher,runFunc PostRunFunc) *Bencher {
+func WithPostRun(bencher *Bencher, runFunc PostRunFunc) *Bencher {
 	if bencher == nil {
 		return nil
 	}
@@ -95,7 +97,7 @@ func WithPostRun(bencher *Bencher,runFunc PostRunFunc) *Bencher {
 	return bencher
 }
 
-func WithPayloadFunc(bencher *Bencher, payloadFunc PayloadFunc) *Bencher{
+func WithPayloadFunc(bencher *Bencher, payloadFunc PayloadFunc) *Bencher {
 	if bencher == nil {
 		return nil
 	}
@@ -105,7 +107,7 @@ func WithPayloadFunc(bencher *Bencher, payloadFunc PayloadFunc) *Bencher{
 	return bencher
 }
 
-func WithPhasePreRun(phaseIndex int,bencher *Bencher, runFunc PreRunFunc) *Bencher{
+func WithPhasePreRun(phaseIndex int, bencher *Bencher, runFunc PreRunFunc) *Bencher {
 	if bencher == nil {
 		return nil
 	}
@@ -117,8 +119,7 @@ func WithPhasePreRun(phaseIndex int,bencher *Bencher, runFunc PreRunFunc) *Bench
 	return bencher
 }
 
-
-func WithPhasePostRun(phaseIndex int,bencher *Bencher, runFunc PostRunFunc) *Bencher{
+func WithPhasePostRun(phaseIndex int, bencher *Bencher, runFunc PostRunFunc) *Bencher {
 	if bencher == nil {
 		return nil
 	}

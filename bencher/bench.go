@@ -119,14 +119,13 @@ func (p *Phase) run(b *Bencher) error {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	signal, err := p.HatchRate.Setup(ctx, p)
 	if err != nil {
 		log.Errorf("failed to setup hatch rate for phase %s", p.Name)
 		return err
 	}
 
-	err = p.Invocation.Setup(p, b)
+	err = p.Invocation.Setup(ctx, p, b)
 	if err != nil {
 		log.Errorf("failed to setup invoker for phase %s", p.Name)
 		return err
@@ -134,13 +133,13 @@ func (p *Phase) run(b *Bencher) error {
 
 	for i := 0; i < p.Threads; i++ {
 
-		go func() {
+		go func(invoker Invoker) {
 			for {
 				select {
 				case <-ctx.Done():
 					return
 				default:
-					err := p.Invocation.Exec(p.HatchRate)
+					err := invoker.Exec(p.HatchRate)
 					if err != nil {
 						if b.Strict {
 							p.HatchRate.Close()
@@ -151,7 +150,7 @@ func (p *Phase) run(b *Bencher) error {
 				}
 
 			}
-		}()
+		}(p.Invocation)
 	}
 
 	waitOn(signal, &p.Timeout)
@@ -178,7 +177,7 @@ func waitOn(signal *sync.Cond, timeout *time.Duration) {
 	if signal == nil && timeout == nil {
 		return
 	}
-	returnChan := make(chan struct{}, 2)
+	returnChan := make(chan struct{})
 	if signal != nil {
 		go func() {
 			signal.Wait()

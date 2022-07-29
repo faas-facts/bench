@@ -34,6 +34,7 @@ import (
 	"strings"
 	"time"
 )
+
 var whiskPropsPath string
 
 func init() {
@@ -58,22 +59,22 @@ type WhiskInvoker struct {
 
 	results *fact.ResultCollector
 
-	client *whisk.Client
+	client       *whisk.Client
 	apiRateLimit *rate.Limiter
 	ctx          context.Context
 }
 
-func newOpenWhiskInvoker(config InvokerConfig) (Invoker,error){
-	if !checkFields(config.Options,  "host","token") {
-		return nil, fmt.Errorf("missing values for whisk invoker")
+func newOpenWhiskInvoker(config InvokerConfig) (Invoker, error) {
+	if !checkFields(config.Options, "host", "token") {
+		log.Warnf("missing config fields, we use the .wskprops file instead")
 	}
 
-	var rps = int64(60)
-	if val,ok := config.Options["rps"];ok {
+	var rps = int64(300)
+	if val, ok := config.Options["rps"]; ok {
 
-		rps,ok = val.(int64)
+		rps, ok = val.(int64)
 		if !ok {
-			return nil,fmt.Errorf("could not read rps %+v form config",val)
+			return nil, fmt.Errorf("could not read rps %+v form config", val)
 		}
 		if rps < 0 {
 			return nil, fmt.Errorf("rqs must be positive")
@@ -83,38 +84,45 @@ func newOpenWhiskInvoker(config InvokerConfig) (Invoker,error){
 	}
 
 	var function string = ""
-	if val,ok := config.Options["function"];ok {
+	if val, ok := config.Options["function"]; ok {
 		function = val.(string)
 	}
 
-	return &WhiskInvoker{
+	w := &WhiskInvoker{
 		FunctionName:     function,
 		RequestPerMinute: rps,
-		Host:             config.Options["host"].(string),
-		Token:            config.Options["token"].(string),
 		Request:          nil,
-	},nil
+	}
+
+	if val, ok := config.Options["host"]; ok {
+		w.Host = val.(string)
+	}
+	if val, ok := config.Options["token"]; ok {
+		w.Token = val.(string)
+	}
+	return w, nil
 
 }
 
-func (l *WhiskInvoker) Setup(phase *Phase, bencher *Bencher) error {
+func (l *WhiskInvoker) Setup(ctx context.Context, phase *Phase, bencher *Bencher) error {
 	err := l.setWhiskClient()
+	l.ctx = ctx
 	if err != nil {
-		log.Errorf("failed to create whisk client %f",err)
+		log.Errorf("failed to create whisk client %f", err)
 		return err
 	}
 
 	l.apiRateLimit = rate.NewLimiter(rate.Every(time.Minute/time.Duration(l.RequestPerMinute)), int(l.RequestPerMinute/60))
 
-	if l.FunctionName == ""{
+	if l.FunctionName == "" {
 		l.FunctionName = phase.Target
 	}
 
 	if phase.PayloadFunc != nil {
 		var payload map[string]interface{}
 		err = json.Unmarshal(phase.PayloadFunc(l), &payload)
-		if err != nil{
-			log.Errorf("failed to create payload %f",err)
+		if err != nil {
+			log.Errorf("failed to create payload %f", err)
 			return err
 		}
 		l.Request = payload
@@ -177,12 +185,11 @@ func (l *WhiskInvoker) Exec(rate HatchRate) error {
 		return err
 	}
 
-	
 	l.results.Add(invoke)
 	return nil
 }
 
-func (l *WhiskInvoker) tryInvoke(invocation interface{},rate HatchRate) (*fact.Trace, error) {
+func (l *WhiskInvoker) tryInvoke(invocation interface{}, rate HatchRate) (*fact.Trace, error) {
 	failures := make([]error, 0)
 	RStart := time.Now()
 	var REnd time.Time
@@ -193,13 +200,12 @@ func (l *WhiskInvoker) tryInvoke(invocation interface{},rate HatchRate) (*fact.T
 			return nil, err
 		}
 
-
 		invoke, response, err := l.client.Actions.Invoke(l.FunctionName, invocation, true, true)
 
 		if response == nil && err != nil {
 			failures = append(failures, err)
 			log.Warnf("failed [%d/%d]", i, maxRetries)
-			log.Debugf("%+v %d %+v",invoke, response.StatusCode, err)
+			log.Debugf("%+v %d %+v", invoke, response.StatusCode, err)
 			rate.OnFailed()
 			continue
 		}
@@ -214,7 +220,7 @@ func (l *WhiskInvoker) tryInvoke(invocation interface{},rate HatchRate) (*fact.T
 				result.Status = int32(response.StatusCode)
 				result.RequestEndTime = timestamppb.New(REnd)
 				result.RequestResponseLatency = durationpb.New(REnd.Sub(RStart))
-				return &result,nil
+				return &result, nil
 			} else if response.StatusCode == 202 {
 				if id, ok := invoke["activationId"]; ok {
 					result, err := l.pollActivation(id.(string))
@@ -225,11 +231,11 @@ func (l *WhiskInvoker) tryInvoke(invocation interface{},rate HatchRate) (*fact.T
 						result.RequestStartTime = timestamppb.New(RStart)
 						result.RequestEndTime = timestamppb.New(REnd)
 						result.RequestResponseLatency = durationpb.New(REnd.Sub(RStart))
-						return &result,nil
+						return &result, nil
 					}
 				}
 			} else {
-				failures = append(failures, fmt.Errorf("failed to invoke %d %+v", response.StatusCode,response.Body))
+				failures = append(failures, fmt.Errorf("failed to invoke %d %+v", response.StatusCode, response.Body))
 				log.Debugf("failed [%d/%d ] times to invoke %s with %+v  %+v %+v", i, maxRetries,
 					l.FunctionName, invocation, invoke, response)
 			}
@@ -251,9 +257,9 @@ func (l *WhiskInvoker) pollActivation(activationID string) (fact.Trace, error) {
 	//might want to configuer the backof rate?
 	backoff := 4
 	var result fact.Trace
-	wait := func (backoff int) int {
+	wait := func(backoff int) int {
 		//results not here yet... keep wating
-		<-time.After(time.Second*time.Duration(backoff))
+		<-time.After(time.Second * time.Duration(backoff))
 		//exponential backoff of 4,16,64,256,1024 seconds
 		backoff = backoff * 4
 		log.Debugf("results not ready waiting for %d", backoff)
@@ -270,10 +276,10 @@ func (l *WhiskInvoker) pollActivation(activationID string) (fact.Trace, error) {
 		if err != nil || response.StatusCode == 404 {
 			backoff = wait(backoff)
 			if err != nil {
-				log.Debugf("failed to poll %+v",err)
+				log.Debugf("failed to poll %+v", err)
 			}
 		} else if response.StatusCode == 200 {
-			log.Debugf("polled %s successfully",activationID)
+			log.Debugf("polled %s successfully", activationID)
 			marshal, err := json.Marshal(invoke.Result)
 
 			err = json.Unmarshal(marshal, &result)
@@ -282,7 +288,7 @@ func (l *WhiskInvoker) pollActivation(activationID string) (fact.Trace, error) {
 				result.ExecutionLatency = durationpb.New(time.Duration(invoke.Duration))
 				result.CodeVersion = invoke.Version
 				result.ID = invoke.ActivationID
-				return result,nil
+				return result, nil
 			} else {
 				return result, fmt.Errorf("failed to fetch activation %s due to %f", activationID, err)
 			}

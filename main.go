@@ -18,18 +18,16 @@
 package main
 
 import (
-	"bufio"
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/faas-facts/bench/bencher"
+	"gopkg.in/yaml.v3"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
@@ -101,13 +99,20 @@ func main() {
 	}
 
 	wlfp := viper.GetString("workload")
-	config, err := os.Open(wlfp)
+	config, err := os.ReadFile(wlfp)
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "failed to open workload - %+v", err)
+		_, _ = fmt.Fprintf(os.Stderr, "failed to read workload - %+v", err)
 		os.Exit(-1)
 	}
 
-	bench, err := bencher.BencherFromConfig(config)
+	var cnf bencher.BenchmarkConfig
+	err = yaml.Unmarshal(config, &cnf)
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "failed to parse workload - %+v", err)
+		os.Exit(-1)
+	}
+
+	bench, err := bencher.BencherReadFromConfig(cnf)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "failed to create workload from %s - %+v", wlfp, err)
 		os.Exit(-1)
@@ -119,7 +124,7 @@ func main() {
 	//TODO: implement cost/request estimation
 
 	if !viper.GetBool("unattended") {
-		if !askForConfirmation("Do you want to continue with this benchmark?", os.Stdin) {
+		if !bencher.AskForConfirmation("Do you want to continue with this benchmark?", os.Stdin) {
 			os.Exit(0)
 		}
 	}
@@ -128,31 +133,4 @@ func main() {
 	bench.Run()
 
 	fmt.Printf("Benchmark completed in %s\n", time.Now().Sub(start))
-}
-
-// askForConfirmation asks the user for confirmation.
-//A user must type in "yes" or some similar confirmation, no by default
-func askForConfirmation(s string, in io.Reader) bool {
-	reader := bufio.NewReader(in)
-
-	fmt.Printf("%s [y/N]: ", s)
-
-	response, err := reader.ReadString('\n')
-	if err != nil {
-		log.Fatal(err)
-		return false
-	}
-
-	response = strings.ToLower(strings.TrimSpace(response))
-	switch response {
-	case "y":
-		fallthrough
-	case "yes":
-		fallthrough
-	case "fuck yeah":
-		return true
-	}
-
-	return false
-
 }
